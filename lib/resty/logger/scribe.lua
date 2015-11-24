@@ -63,8 +63,6 @@ end
 _M._VERSION = '0.03'
 
 -- user config
-local category
-local category_count_str
 local flush_limit           = 4096         -- 4KB
 local drop_limit            = 1048576      -- 1MB
 local timeout               = 1000         -- 1 sec
@@ -228,7 +226,10 @@ local function _do_flush()
     end
 
     seqid = band(seqid + 1, 0xffffffff)
-    packet = _pack_i32_be(#packet + 24) .. '\x80\x01\x00\x01\x00\x00\x00\x03Log' .. _pack_i32_be(seqid) .. '\x0f\x00\x01\x0c' .. _pack_i32_be(count) .. packet .. '\x00'
+    packet = _pack_i32_be(#packet + 24) ..
+             '\x80\x01\x00\x01\x00\x00\x00\x03Log' ..
+             _pack_i32_be(seqid) .. '\x0f\x00\x01\x0c' ..
+             _pack_i32_be(count) .. packet .. '\x00'
 
     bytes, err = sock:send(packet)
     if not bytes then
@@ -386,7 +387,6 @@ local function _flush_buffer()
 end
 
 local function _write_buffer(msg)
-    msg = '\x0b\x00\x01' .. category_count_str .. category .. '\x0b\x00\x02' .. _pack_i32_be(#msg) .. msg .. '\x00'
     log_buffer_index = log_buffer_index + 1
     log_buffer_data[log_buffer_index] = msg
 
@@ -402,13 +402,7 @@ function _M.init(user_config)
     end
 
     for k, v in pairs(user_config) do
-        if k == "category" then
-            if type(v) ~= "string" then
-                return nil, '"category" must be a string'
-            end
-            category = v
-            category_count_str = _pack_i32_be(#category)
-        elseif k == "host" then
+        if k == "host" then
             if type(v) ~= "string" then
                 return nil, '"host" must be a string'
             end
@@ -485,10 +479,6 @@ function _M.init(user_config)
         end
     end
 
-    if not category then
-        return nil, "no category configured. \"category\" is required."
-    end
-
     if not (host and port) and not path then
         return nil, "no logging server configured. \"host\"/\"port\" or "
                 .. "\"path\" is required."
@@ -521,16 +511,23 @@ function _M.init(user_config)
     return logger_initted
 end
 
-function _M.log(msg)
+function _M.log(category, msg)
     if not logger_initted then
         return nil, "not initialized"
     end
 
     local bytes
 
+    if type(category) ~= "string" then
+        category = tostring(category)
+    end
+
     if type(msg) ~= "string" then
         msg = tostring(msg)
     end
+
+    msg = '\x0b\x00\x01' .. _pack_i32_be(#category) .. category ..
+          '\x0b\x00\x02' .. _pack_i32_be(#msg) .. msg .. '\x00'
 
     if (debug) then
         ngx.update_time()
