@@ -226,9 +226,10 @@ local function _do_flush()
     end
 
     seqid = band(seqid + 1, 0xffffffff)
+    local packed_seqid = _pack_i32_be(seqid)
     packet = _pack_i32_be(#packet + 24) ..
              '\x80\x01\x00\x01\x00\x00\x00\x03Log' ..
-             _pack_i32_be(seqid) .. '\x0f\x00\x01\x0c' ..
+             packed_seqid .. '\x0f\x00\x01\x0c' ..
              _pack_i32_be(count) .. packet .. '\x00'
 
     bytes, err = sock:send(packet)
@@ -242,9 +243,14 @@ local function _do_flush()
         return nil, err
     end
 
-    data, err, partial = sock:receive(_unpack_i32_be(data))
-    if not data then
-        return nil, err
+    local len = _unpack_i32_be(data)
+    data, err, partial = sock:receive(len)
+    if len ~= 20 or data ~= '\0\0\0\3Log\2' .. packed_seqid .. '\8\0\0\0\0\0\0\0' then
+        if data:byte(19) == 1 then
+            return nil, 'try later'
+        end
+
+        return nil, 'receive error'
     end
 
     if debug then
@@ -341,7 +347,7 @@ local function _flush()
     if not bytes then
         local err_msg = "try to send log messages to the log server "
                         .. "failed after " .. max_retry_times .. " retries: "
-                        .. err
+                        .. err .. ", buffer_size = " .. buffer_size
         _write_error(err_msg)
         return nil, err_msg
     else
